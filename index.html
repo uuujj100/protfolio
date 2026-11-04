@@ -1,0 +1,181 @@
+<!doctype html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NIGHT7 LAB · 技术作品集</title>
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;padding:0}
+  body{
+    background:#14101d;
+    color:#fff;
+    font-family:"Segoe UI","Microsoft YaHei","PingFang SC",system-ui,-apple-system,sans-serif;
+    -webkit-font-smoothing:antialiased;
+    min-height:100vh;
+    overflow-x:hidden;
+  }
+  .glow{position:fixed;border-radius:50%;filter:blur(130px);pointer-events:none;z-index:0}
+  .g1{width:720px;height:720px;top:-240px;left:-160px;background:#5b3fd6;opacity:.38}
+  .g2{width:640px;height:640px;bottom:-280px;right:-180px;background:#2b6fd6;opacity:.26}
+
+  .wrap{position:relative;z-index:1;max-width:1180px;margin:0 auto;padding:26px 24px 0}
+
+  .notice{
+    display:flex;align-items:center;justify-content:center;gap:8px;
+    padding:13px 20px;border-radius:12px;font-size:13px;
+    color:#f2b871;background:rgba(255,190,90,.075);
+    border:1px solid rgba(255,190,90,.22);letter-spacing:.2px;
+  }
+  .notice b{font-weight:600;color:#ffd29a}
+  .notice a{color:#f2b871;text-decoration:none;border-bottom:1px dashed rgba(242,184,113,.45);padding-bottom:1px}
+
+  .brand{text-align:center;padding:44px 0 0}
+  .logo{display:inline-flex;align-items:center;gap:13px;font-size:34px;font-weight:800;letter-spacing:1.5px}
+  .mark{
+    width:40px;height:40px;border-radius:11px;display:grid;place-items:center;font-size:19px;
+    background:linear-gradient(140deg,#8f6bff,#5b3fd6);
+    box-shadow:0 6px 20px rgba(123,92,255,.35);color:#fff;
+  }
+  .logo .lab{
+    background:linear-gradient(100deg,#a78bfa,#60a5fa);
+    -webkit-background-clip:text;background-clip:text;color:transparent;
+  }
+  .tagline{margin:16px 0 0;font-size:14.5px;color:#a29fb4;letter-spacing:.6px}
+
+  .chips{display:flex;flex-wrap:wrap;justify-content:center;gap:8px;margin-top:22px}
+  .chips span{
+    font-size:12px;color:#b9b6c9;padding:5px 13px;border-radius:999px;
+    border:1px solid rgba(255,255,255,.1);background:rgba(255,255,255,.03);
+  }
+
+  .cards{display:grid;gap:16px;margin-top:36px}
+
+  .card{
+    position:relative;display:flex;align-items:center;gap:30px;
+    padding:27px 32px;border-radius:16px;overflow:hidden;
+    border:1px solid rgba(255,255,255,.09);
+    background:linear-gradient(180deg,rgba(255,255,255,.052),rgba(255,255,255,.022));
+    transition:border-color .22s,transform .22s,background .22s;
+  }
+  .card::before{
+    content:"";position:absolute;left:0;top:0;bottom:0;width:3px;
+    opacity:.55;transition:opacity .22s;
+  }
+  .card:hover{border-color:rgba(255,255,255,.2);transform:translateY(-2px);
+    background:linear-gradient(180deg,rgba(255,255,255,.07),rgba(255,255,255,.03))}
+  .card:hover::before{opacity:1}
+  .c1::before{background:linear-gradient(#8f6bff,#5b3fd6)}
+  .c2::before{background:linear-gradient(#3ddc97,#1f9e6b)}
+  .c3::before{background:linear-gradient(#3cc8ff,#2b7fd0)}
+
+  .card-main{flex:1;min-width:0}
+  .card-head{display:flex;align-items:center;gap:12px;flex-wrap:wrap}
+  .card-head h3{margin:0;font-size:20px;font-weight:700;letter-spacing:.4px}
+  .ver{font-size:11px;padding:3px 10px;border-radius:999px;letter-spacing:.4px;white-space:nowrap}
+  .c1 .ver{color:#c0aeff;background:rgba(124,92,255,.16);border:1px solid rgba(124,92,255,.32)}
+  .c2 .ver{color:#8ff0c4;background:rgba(61,220,151,.13);border:1px solid rgba(61,220,151,.3)}
+  .c3 .ver{color:#93ddff;background:rgba(60,200,255,.12);border:1px solid rgba(60,200,255,.28)}
+
+  .desc{margin:13px 0 0;font-size:13.5px;line-height:1.85;color:#a29fb4}
+  .stack{margin:11px 0 0;font-size:11.5px;color:#6f6c82;letter-spacing:.35px}
+
+  .btn{
+    flex:none;white-space:nowrap;text-decoration:none;font-size:13.5px;font-weight:600;
+    padding:12px 26px;border-radius:999px;color:#fff;letter-spacing:.3px;
+    transition:transform .18s,box-shadow .18s;
+  }
+  .btn:hover{transform:translateY(-1px)}
+  .c1 .btn{background:linear-gradient(135deg,#7b5cff,#a271ff);box-shadow:0 7px 20px rgba(123,92,255,.28)}
+  .c2 .btn{background:linear-gradient(135deg,#28b47e,#3ccc8c);box-shadow:0 7px 20px rgba(40,180,126,.24)}
+  .c3 .btn{background:linear-gradient(135deg,#2b8fd0,#3cc0f5);box-shadow:0 7px 20px rgba(43,143,208,.24)}
+
+  footer{
+    text-align:center;padding:44px 0 56px;font-size:12px;color:#6f6c82;line-height:2.1;
+  }
+  footer .dot{color:#3a3650;margin:0 8px}
+
+  @media (max-width:820px){
+    .card{flex-direction:column;align-items:stretch;gap:18px;padding:24px}
+    .btn{align-self:flex-start}
+    .logo{font-size:27px}
+    .brand{padding-top:32px}
+  }
+</style>
+</head>
+<body>
+<div class="glow g1"></div>
+<div class="glow g2"></div>
+
+<div class="wrap">
+
+  <div class="notice">
+    📌 <b>本站为个人技术作品集</b>　源码开源，在线演示持续更新 <a href="https://github.com/">查看仓库 →</a>
+  </div>
+
+  <header class="brand">
+    <div class="logo"><span class="mark">◈</span>NIGHT7&nbsp;<span class="lab">LAB</span></div>
+    <p class="tagline">2026 级人工智能专业 · 从「能写代码」到「能交付产品」</p>
+    <div class="chips">
+      <span>Python</span><span>JavaScript</span><span>HTML5 Video</span>
+      <span>Android Location</span><span>Nginx</span><span>Git</span>
+    </div>
+  </header>
+
+  <main class="cards">
+
+    <article class="card c1">
+      <div class="card-main">
+        <div class="card-head">
+          <h3>N7 Player · 视频播放模块</h3>
+          <span class="ver">v0.6 · 2026-10</span>
+        </div>
+        <p class="desc">
+          独立完成界面与播放逻辑，支持倍速、进度记忆与断点续播。<br>
+          遇到大文件加载卡顿，把「整体加载」改成「先分片预读、再顺序播放」，首帧时间明显缩短。
+        </p>
+        <p class="stack">HTML5 Video API　·　事件驱动　·　本地状态缓存</p>
+      </div>
+      <a class="btn" href="https://github.com/">查看源码 →</a>
+    </article>
+
+    <article class="card c2">
+      <div class="card-main">
+        <div class="card-head">
+          <h3>GeoMock · 定位服务 Demo</h3>
+          <span class="ver">v0.9 · 2026-10</span>
+        </div>
+        <p class="desc">
+          调用系统定位接口，处理权限申请、位置回调与坐标数据回传，把整条链路跑通。<br>
+          踩过权限被拒、定位漂移、坐标系不一致的坑，最后用坐标转换 + 平滑采样解决。
+        </p>
+        <p class="stack">Android Location　·　Web Geolocation　·　坐标系转换</p>
+      </div>
+      <a class="btn" href="https://github.com/">查看源码 →</a>
+    </article>
+
+    <article class="card c3">
+      <div class="card-main">
+        <div class="card-head">
+          <h3>站点部署与发布</h3>
+          <span class="ver">v1.2 · 2026-11</span>
+        </div>
+        <p class="desc">
+          从域名解析、Nginx 反向代理到 HTTPS 证书，把一台站点从代码到上线的流程完整走了一遍。<br>
+          后来迁到 GitHub Pages 并开源：静态站没必要长期为一台服务器付维护成本。
+        </p>
+        <p class="stack">DNS　·　Nginx　·　HTTPS / ACME　·　GitHub Pages</p>
+      </div>
+      <a class="btn" href="https://github.com/">查看仓库 →</a>
+    </article>
+
+  </main>
+
+  <footer>
+    全部内容免费开放，代码开源，欢迎交流与指正
+    <span class="dot">·</span> NIGHT7 LAB <span class="dot">·</span> 2026 秋
+  </footer>
+
+</div>
+</body>
+</html>
