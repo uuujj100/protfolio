@@ -22,8 +22,8 @@ portfolio/
 
 | 演示 | 说明 | 涉及技术 |
 | --- | --- | --- |
-| [N7 Player](demos/n7-player.html) | 本地/远程视频播放，倍速、进度记忆、断点续播、键盘快捷键 | HTML5 Video API、`TimeRanges`、`localStorage` |
-| [GeoMock](demos/geomock.html) | 浏览器定位、WGS84→GCJ02 坐标转换、轨迹绘制与平滑采样 | Geolocation API、坐标纠偏、移动平均 |
+| [N7 Player](demos/n7-player.html) | 本地/远程视频播放，倍速、进度记忆、断点续播、键盘快捷键、**WebVTT 字幕** | HTML5 Video API、`TimeRanges`、`localStorage`、VTT 解析 |
+| [GeoMock](demos/geomock.html) | 浏览器定位、WGS84→GCJ02 坐标转换、轨迹绘制与平滑采样、**手动坐标对比** | Geolocation API、坐标纠偏、haversine、移动平均 |
 
 两个演示都不依赖任何框架，单文件即可运行，源码就是页面本身。
 
