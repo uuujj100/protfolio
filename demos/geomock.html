@@ -6,7 +6,7 @@
 <title>GeoMock · 定位服务 Demo</title>
 <style>
   :root{--bg:#14101d;--card:rgba(255,255,255,.05);--line:rgba(255,255,255,.1);
-        --text:#fff;--muted:#a29fb4;--dim:#6f6c82;--green:#3ddc97;--green2:#28b47e}
+        --text:#fff;--muted:#a29fb4;--dim:#6f6c82;--green:#3ddc97;--green2:#28b47e;--orange:#f2b871}
   *{box-sizing:border-box}
   body{margin:0;background:var(--bg);color:var(--text);
        font-family:"Segoe UI","Microsoft YaHei",system-ui,sans-serif;min-height:100vh}
@@ -28,7 +28,14 @@
   button:hover{background:rgba(255,255,255,.12)}
   button.primary{background:linear-gradient(135deg,var(--green2),var(--green));border:none;
                  color:#07231a;font-weight:600;box-shadow:0 6px 18px rgba(61,220,151,.22)}
+  button.ghost{border-color:rgba(242,184,113,.4);color:var(--orange)}
+  button.ghost:hover{background:rgba(242,184,113,.12)}
   button:disabled{opacity:.45;cursor:not-allowed}
+
+  input[type=text]{flex:1;min-width:110px;background:rgba(255,255,255,.05);
+        border:1px solid var(--line);color:var(--text);border-radius:10px;
+        padding:9px 13px;font-size:13px;font-variant-numeric:tabular-nums}
+  input[type=text]::placeholder{color:#5a566d}
 
   .kv{display:flex;justify-content:space-between;padding:9px 0;font-size:13px;
       border-bottom:1px solid rgba(255,255,255,.06)}
@@ -36,9 +43,11 @@
   .kv span{color:var(--dim)}
   .kv b{font-weight:600;font-variant-numeric:tabular-nums}
   .kv b.g{color:var(--green)}
+  .kv b.o{color:var(--orange)}
   .hint{font-size:12px;color:var(--dim);line-height:1.9;margin-top:14px}
-  .warn{font-size:12px;color:#f2b871;margin-top:10px;line-height:1.8}
+  .warn{font-size:12px;color:var(--orange);margin-top:10px;line-height:1.8}
   label.chk{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--muted);margin-top:14px}
+  .sep{height:1px;background:rgba(255,255,255,.08);margin:14px 0}
 </style>
 </head>
 <body>
@@ -59,6 +68,20 @@
         <button id="clear">清空轨迹</button>
         <button id="export">导出 GeoJSON</button>
       </div>
+
+      <div class="sep"></div>
+
+      <div class="hint" style="margin-top:0">
+        手动输入坐标：用于调试对比 —— 填入一个已知点，看它和真实定位差多少、坐标转换偏了多少。
+      </div>
+      <div class="row">
+        <input type="text" id="mLat" placeholder="纬度 39.908722">
+        <input type="text" id="mLon" placeholder="经度 116.397499">
+        <input type="text" id="mAcc" placeholder="精度 50" style="max-width:110px">
+        <button class="ghost" id="addM">加入对比点</button>
+        <button class="ghost" id="clearM">清除对比点</button>
+      </div>
+
       <label class="chk"><input type="checkbox" id="smooth" checked> 启用平滑采样（移动平均，抑制漂移）</label>
       <div class="hint">
         轨迹点越多，平均误差越小；但浏览器给的坐标本身就有抖动，所以连续定位时用移动平均窗口收敛，
@@ -78,6 +101,8 @@
       <div class="kv"><span>方向</span><b id="hdg">—</b></div>
       <div class="kv"><span>采样点数</span><b id="cnt">0</b></div>
       <div class="kv"><span>更新时间</span><b id="ts">—</b></div>
+      <div class="kv"><span>对比点 GCJ02</span><b id="mGcj" class="o">—</b></div>
+      <div class="kv"><span>与最近 GPS 点距离</span><b id="mDist" class="o">—</b></div>
       <div class="hint">
         需要 HTTPS 或 localhost，且用户手动授权。拒绝授权会返回 code 1，
         超时返回 code 3，无定位能力返回 code 2。
@@ -90,10 +115,11 @@
 (() => {
   const $ = id => document.getElementById(id);
   const c = $('c'), ctx = c.getContext('2d');
-  let points = [];       // {lat, lon, acc, t}
+  let points = [];        // 真实定位点 {lat, lon, acc, t}
+  let manual = [];        // 手动对比点 {lat, lon, acc}
   let watchId = null;
 
-  // ---------- WGS84 → GCJ02 ----------
+  // ---------------- WGS84 → GCJ02 ----------------
   // 国内地图（高德/腾讯）用的是 GCJ02 火星坐标，直接用 GPS 原始经纬度会偏移几百米
   const PI = Math.PI, A = 6378245.0, EE = 0.00669342162296594323;
   const outOfChina = (lat, lon) =>
@@ -125,7 +151,18 @@
     return [lat + dLat, lon + dLon];
   };
 
-  // ---------- 平滑采样 ----------
+  // ---------------- 球面距离（haversine） ----------------
+  const R = 6371000;
+  const distance = (a, b) => {
+    const dLat = (b.lat - a.lat) * PI / 180;
+    const dLon = (b.lon - a.lon) * PI / 180;
+    const h = Math.sin(dLat/2) ** 2 +
+              Math.cos(a.lat * PI/180) * Math.cos(b.lat * PI/180) * Math.sin(dLon/2) ** 2;
+    return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+  };
+  const fmtDist = m => m < 1000 ? m.toFixed(1) + ' m' : (m/1000).toFixed(2) + ' km';
+
+  // ---------------- 平滑采样 ----------------
   const smoothPoints = (arr, win = 3) => {
     if (arr.length < win) return arr.slice();
     const out = [];
@@ -141,7 +178,7 @@
     return out;
   };
 
-  // ---------- 绘图 ----------
+  // ---------------- 绘图 ----------------
   const draw = () => {
     const dpr = window.devicePixelRatio || 1;
     const w = c.clientWidth, h = c.clientHeight;
@@ -149,21 +186,22 @@
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
     ctx.clearRect(0, 0, w, h);
 
-    // 网格
     ctx.strokeStyle = 'rgba(255,255,255,.05)'; ctx.lineWidth = 1;
     for (let x = 0; x < w; x += 40) { ctx.beginPath(); ctx.moveTo(x,0); ctx.lineTo(x,h); ctx.stroke(); }
     for (let y = 0; y < h; y += 40) { ctx.beginPath(); ctx.moveTo(0,y); ctx.lineTo(w,y); ctx.stroke(); }
 
-    if (points.length === 0) {
+    const all = points.concat(manual);
+    if (all.length === 0) {
       ctx.fillStyle = 'rgba(255,255,255,.22)';
       ctx.font = '13px "Microsoft YaHei",sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText('点「获取一次位置」开始', w/2, h/2);
+      ctx.fillText('点「获取一次位置」，或手动填入坐标做对比', w/2, h/2);
       return;
     }
 
     const ds = $('smooth').checked ? smoothPoints(points) : points;
-    const lats = ds.map(p => p.lat), lons = ds.map(p => p.lon);
+    const box = ds.concat(manual);
+    const lats = box.map(p => p.lat), lons = box.map(p => p.lon);
     const minLat = Math.min(...lats), maxLat = Math.max(...lats);
     const minLon = Math.min(...lons), maxLon = Math.max(...lons);
     const padLat = (maxLat - minLat) * 0.25 || 1e-4;
@@ -171,27 +209,47 @@
     const X = lon => 40 + (lon - (minLon - padLon)) / ((maxLon + padLon) - (minLon - padLon)) * (w - 80);
     const Y = lat => h - 40 - (lat - (minLat - padLat)) / ((maxLat + padLat) - (minLat - padLat)) * (h - 80);
 
-    ctx.strokeStyle = 'rgba(61,220,151,.85)';
-    ctx.lineWidth = 2; ctx.lineJoin = 'round';
-    ctx.beginPath();
-    ds.forEach((p, i) => i ? ctx.lineTo(X(p.lon), Y(p.lat)) : ctx.moveTo(X(p.lon), Y(p.lat)));
-    ctx.stroke();
-
-    ds.forEach((p, i) => {
-      const last = i === ds.length - 1;
+    // GPS 轨迹
+    if (ds.length) {
+      ctx.strokeStyle = 'rgba(61,220,151,.85)';
+      ctx.lineWidth = 2; ctx.lineJoin = 'round';
       ctx.beginPath();
-      ctx.arc(X(p.lon), Y(p.lat), last ? 5 : 2.5, 0, PI * 2);
-      ctx.fillStyle = last ? '#3ddc97' : 'rgba(61,220,151,.5)';
-      ctx.fill();
-      if (last && p.acc) {          // 精度圈示意
+      ds.forEach((p, i) => i ? ctx.lineTo(X(p.lon), Y(p.lat)) : ctx.moveTo(X(p.lon), Y(p.lat)));
+      ctx.stroke();
+      ds.forEach((p, i) => {
+        const last = i === ds.length - 1;
         ctx.beginPath();
-        ctx.arc(X(p.lon), Y(p.lat), Math.min(28, p.acc / 8), 0, PI * 2);
-        ctx.strokeStyle = 'rgba(61,220,151,.35)'; ctx.lineWidth = 1; ctx.stroke();
-      }
-    });
+        ctx.arc(X(p.lon), Y(p.lat), last ? 5 : 2.5, 0, PI * 2);
+        ctx.fillStyle = last ? '#3ddc97' : 'rgba(61,220,151,.5)';
+        ctx.fill();
+        if (last && p.acc) {
+          ctx.beginPath();
+          ctx.arc(X(p.lon), Y(p.lat), Math.min(28, p.acc / 8), 0, PI * 2);
+          ctx.strokeStyle = 'rgba(61,220,151,.35)'; ctx.lineWidth = 1; ctx.stroke();
+        }
+      });
+    }
+
+    // 手动对比点：橙色方块 + 虚线
+    if (manual.length) {
+      ctx.setLineDash([5, 4]);
+      ctx.strokeStyle = 'rgba(242,184,113,.75)'; ctx.lineWidth = 1.6;
+      ctx.beginPath();
+      manual.forEach((p, i) => i ? ctx.lineTo(X(p.lon), Y(p.lat)) : ctx.moveTo(X(p.lon), Y(p.lat)));
+      ctx.stroke();
+      ctx.setLineDash([]);
+      manual.forEach(p => {
+        const x = X(p.lon), y = Y(p.lat);
+        ctx.fillStyle = '#f2b871';
+        ctx.fillRect(x - 4, y - 4, 8, 8);
+        ctx.strokeStyle = 'rgba(242,184,113,.5)';
+        ctx.lineWidth = 1;
+        ctx.strokeRect(x - 4, y - 4, 8, 8);
+      });
+    }
   };
 
-  // ---------- 数据渲染 ----------
+  // ---------------- 数据渲染 ----------------
   const render = pos => {
     const { latitude: lat, longitude: lon, accuracy, altitude, speed, heading } = pos.coords;
     points.push({ lat, lon, acc: accuracy, t: pos.timestamp });
@@ -208,7 +266,22 @@
     $('hdg').textContent  = heading == null ? '—' : heading.toFixed(1) + '°';
     $('cnt').textContent  = points.length;
     $('ts').textContent   = new Date(pos.timestamp).toLocaleTimeString('zh-CN');
+    updateManualReadout();
     draw();
+  };
+
+  // 对比点读数：GCJ02 值 + 与最近 GPS 点的距离
+  const updateManualReadout = () => {
+    if (!manual.length) { $('mGcj').textContent = '—'; $('mDist').textContent = '—'; return; }
+    const m = manual[manual.length - 1];
+    const [glat, glon] = wgs84ToGcj02(m.lat, m.lon);
+    $('mGcj').textContent = glat.toFixed(6) + ', ' + glon.toFixed(6);
+    if (points.length) {
+      const d = distance(m, points[points.length - 1]);
+      $('mDist').textContent = fmtDist(d) + '（最近 ' + (d - m.acc - points[points.length-1].acc > 0 ? '超出两倍精度' : '在精度圈内') + '）';
+    } else {
+      $('mDist').textContent = '尚未获取 GPS 点';
+    }
   };
 
   const onErr = e => {
@@ -244,9 +317,23 @@
     points = [];
     ['lat','lon','glat','glon','acc','alt','spd','hdg','ts'].forEach(id => $(id).textContent = '—');
     $('cnt').textContent = '0';
+    updateManualReadout();
     draw();
   };
   $('smooth').onchange = draw;
+
+  // ---------------- 手动对比点 ----------------
+  $('addM').onclick = () => {
+    const lat = parseFloat($('mLat').value), lon = parseFloat($('mLon').value);
+    const acc = parseFloat($('mAcc').value);
+    if (!isFinite(lat) || !isFinite(lon)) return showWarn('纬度/经度要填数字，例如 39.908722');
+    if (lat < -90 || lat > 90 || lon < -180 || lon > 180) return showWarn('坐标超出有效范围');
+    manual.push({ lat, lon, acc: isFinite(acc) && acc > 0 ? acc : 50 });
+    if (manual.length > 12) manual.shift();
+    updateManualReadout();
+    draw();
+  };
+  $('clearM').onclick = () => { manual = []; updateManualReadout(); draw(); };
 
   $('export').onclick = () => {
     if (!points.length) return showWarn('还没有轨迹点可以导出');
