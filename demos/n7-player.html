@@ -23,6 +23,12 @@
   video{width:100%;height:100%;display:block;background:#000}
   .empty{position:absolute;text-align:center;color:var(--dim);font-size:13.5px;line-height:2}
   .empty b{color:var(--muted);font-weight:600}
+  .cue{position:absolute;left:50%;bottom:26px;transform:translateX(-50%);
+       max-width:82%;padding:8px 16px;border-radius:8px;
+       background:rgba(0,0,0,.66);color:#fff;font-size:17px;line-height:1.5;
+       text-align:center;text-shadow:0 1px 3px rgba(0,0,0,.6);
+       opacity:0;transition:opacity .12s;pointer-events:none;white-space:pre-wrap}
+  .cue.on{opacity:1}
 
   .bar{margin-top:14px;background:var(--card);border:1px solid var(--line);
        border-radius:14px;padding:14px 16px}
@@ -37,6 +43,7 @@
   button:hover{background:rgba(255,255,255,.12)}
   button.primary{background:linear-gradient(135deg,var(--accent),var(--accent2));border:none;
                  box-shadow:0 6px 18px rgba(123,92,255,.28)}
+  button.off{opacity:.45}
   select{background:rgba(255,255,255,.06);border:1px solid var(--line);color:var(--text);
          padding:7px 10px;border-radius:8px;font-size:13px}
   .time{font-size:12.5px;color:var(--muted);font-variant-numeric:tabular-nums}
@@ -67,6 +74,7 @@
 
   <div class="stage">
     <video id="v" playsinline></video>
+    <div class="cue" id="cue"></div>
     <div class="empty" id="empty">
       <b>选择一个本地视频，或粘贴视频地址</b><br>
       播放进度会按「文件名 + 大小」自动记忆，下次打开接着看
@@ -84,6 +92,7 @@
       <span class="time">/</span>
       <span class="time" id="tdur">00:00</span>
       <div class="grow"></div>
+      <button id="sub" title="显示/隐藏字幕（C）">字幕 · 关</button>
       <button id="back10">« 10s</button>
       <button id="fwd10">10s »</button>
       <select id="speed">
@@ -107,15 +116,22 @@
     <button id="load">加载</button>
   </div>
 
+  <div class="picker">
+    <input type="file" id="vttIn" accept=".vtt,text/vtt" hidden>
+    <button id="pickVtt">加载字幕 (.vtt)</button>
+    <button id="demoVtt">载入示例字幕</button>
+  </div>
+
   <div class="keys">
     <kbd>空格</kbd> 播放/暂停　<kbd>←</kbd><kbd>→</kbd> 快退/快进 5 秒　
-    <kbd>↑</kbd><kbd>↓</kbd> 音量　<kbd>M</kbd> 静音　<kbd>F</kbd> 全屏
+    <kbd>↑</kbd><kbd>↓</kbd> 音量　<kbd>M</kbd> 静音　<kbd>C</kbd> 字幕　<kbd>F</kbd> 全屏
   </div>
 
   <div class="stats">
     <span>分辨率 <b id="sRes">—</b></span>
     <span>时长 <b id="sDur">—</b></span>
     <span>已缓冲 <b id="sBuf">—</b></span>
+    <span>字幕轨 <b id="sSub">未加载</b></span>
     <span>源 <b id="sSrc">—</b></span>
   </div>
 </div>
@@ -124,23 +140,21 @@
 
 <script>
 (() => {
-  const v      = document.getElementById('v');
-  const empty  = document.getElementById('empty');
-  const prog   = document.getElementById('prog');
-  const buf    = document.getElementById('buf');
-  const track  = document.getElementById('track');
-  const playBtn= document.getElementById('play');
-  const tcur   = document.getElementById('tcur');
-  const tdur   = document.getElementById('tdur');
-  const speed  = document.getElementById('speed');
-  const vol    = document.getElementById('vol');
-  const muteBtn= document.getElementById('mute');
-  const fileIn = document.getElementById('file');
-  const urlIn  = document.getElementById('url');
-  const toastEl= document.getElementById('toast');
+  const $ = id => document.getElementById(id);
+  const v = $('v'), empty = $('empty'), cueEl = $('cue');
+  const prog = $('prog'), buf = $('buf'), track = $('track');
+  const playBtn = $('play'), tcur = $('tcur'), tdur = $('tdur');
+  const speed = $('speed'), vol = $('vol'), muteBtn = $('mute');
+  const fileIn = $('file'), urlIn = $('url'), toastEl = $('toast');
+  const subBtn = $('sub'), vttIn = $('vttIn');
 
   const KEY = 'n7player:progress';
-  let currentKey = null;   // 进度记忆的键：文件名 + 大小 / URL
+  let currentKey = null;
+
+  // 字幕状态
+  let cues = [];         // [{start, end, text}]
+  let subOn = false;
+  let activeCue = -1;
 
   const fmt = s => {
     if (!isFinite(s) || s < 0) s = 0;
@@ -154,10 +168,8 @@
     toast._t = setTimeout(() => toastEl.classList.remove('show'), 2600);
   };
 
-  // ---------- 进度记忆 ----------
-  const readStore = () => {
-    try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; }
-  };
+  // ---------------- 进度记忆 ----------------
+  const readStore = () => { try { return JSON.parse(localStorage.getItem(KEY) || '{}'); } catch { return {}; } };
   const saveProgress = () => {
     if (!currentKey || !isFinite(v.duration) || v.currentTime < 3) return;
     const all = readStore();
@@ -172,43 +184,137 @@
     }
   };
 
-  // ---------- 载入源 ----------
+  // ---------------- 载入视频 ----------------
   const useSource = (src, key, label) => {
     currentKey = key;
     empty.style.display = 'none';
-    v.src = src;
-    v.load();
-    document.getElementById('sSrc').textContent = label;
-    v.play().catch(() => {});      // 自动播放可能被策略拦截，失败不报错
+    v.src = src; v.load();
+    $('sSrc').textContent = label;
+    v.play().catch(() => {});
   };
-
-  document.getElementById('pick').onclick = () => fileIn.click();
+  $('pick').onclick = () => fileIn.click();
   fileIn.onchange = () => {
-    const f = fileIn.files[0];
-    if (!f) return;
+    const f = fileIn.files[0]; if (!f) return;
     useSource(URL.createObjectURL(f), `f:${f.name}:${f.size}`, f.name);
   };
-  document.getElementById('load').onclick = () => {
+  $('load').onclick = () => {
     const u = urlIn.value.trim();
     if (!u) return toast('先填一个视频地址');
     useSource(u, `u:${u}`, '远程地址');
   };
 
-  // ---------- 播放控制 ----------
+  // ---------------- 字幕：自己解析 WebVTT ----------------
+  // 为什么不用 <track> + track.mode='showing'：
+  //   原生渲染无法改样式、无法在无视频时预览、跨浏览器对齐方式不一致。
+  //   手工解析只有几十行，换来完全可控的渲染。
+  const TS = String.raw`(\d{1,2}):(\d{2}):(\d{2})[.,](\d{3})`;
+  const CUE_RE = new RegExp(TS + String.raw`\s*-->\s*` + TS);
+
+  const parseVtt = text => {
+    const out = [];
+    const lines = text.replace(/\r\n?/g, '\n').split('\n');
+    let i = 0;
+    while (i < lines.length) {
+      const m = lines[i].match(CUE_RE);
+      if (m) {
+        const toSec = (h, mi, s, ms) => (+h) * 3600 + (+mi) * 60 + (+s) + (+ms) / 1000;
+        const start = toSec(m[1], m[2], m[3], m[4]);
+        const end   = toSec(m[5], m[6], m[7], m[8]);
+        const bufLines = [];
+        i++;
+        while (i < lines.length && lines[i].trim() !== '') { bufLines.push(lines[i]); i++; }
+        const txt = bufLines.join('\n').trim();
+        if (txt) out.push({ start, end, text: txt });
+      } else i++;
+    }
+    return out.sort((a, b) => a.start - b.start);
+  };
+
+  const SAMPLE_VTT = `WEBVTT
+
+00:00:00.000 --> 00:00:04.000
+字幕已加载 · 这是一条演示字幕
+
+00:00:04.000 --> 00:00:08.000
+播放到第 4 秒，字幕会自动切换
+
+00:00:08.000 --> 00:00:12.000
+时间轴是绝对的，跟视频内容无关
+
+00:00:12.000 --> 00:00:16.000
+按 C 可以开关字幕<br>这一行演示了换行
+
+00:00:16.000 --> 00:00:20.000
+拖动进度条，字幕会跟着重算
+
+00:00:20.000 --> 00:00:25.000
+手工解析 VTT 只有几十行，换来的
+是完全可控的渲染样式
+`;
+
+  const setCues = (list, name) => {
+    cues = list;
+    activeCue = -1;
+    cueEl.classList.remove('on');
+    cueEl.textContent = '';
+    $('sSub').textContent = name + '（' + list.length + ' 条）';
+    if (!subOn) toggleSub(true);        // 加载后自动开启，方便看到效果
+    toast('已加载字幕：' + list.length + ' 条');
+  };
+
+  const toggleSub = force => {
+    subOn = (typeof force === 'boolean') ? force : !subOn;
+    subBtn.textContent = '字幕 · ' + (subOn ? '开' : '关');
+    subBtn.classList.toggle('off', !subOn);
+    if (!subOn) { cueEl.classList.remove('on'); activeCue = -1; }
+    else renderCue();
+  };
+
+  const renderCue = () => {
+    if (!subOn || !cues.length) return;
+    const t = v.currentTime;
+    let idx = -1;
+    for (let i = 0; i < cues.length; i++) {
+      if (t >= cues[i].start && t < cues[i].end) { idx = i; break; }
+    }
+    if (idx === activeCue) return;
+    activeCue = idx;
+    if (idx === -1) { cueEl.classList.remove('on'); }
+    else { cueEl.textContent = cues[idx].text; cueEl.classList.add('on'); }
+  };
+
+  $('pickVtt').onclick = () => vttIn.click();
+  vttIn.onchange = () => {
+    const f = vttIn.files[0]; if (!f) return;
+    const r = new FileReader();
+    r.onload = () => {
+      const list = parseVtt(r.result);
+      if (!list.length) return toast('这个文件里没解析到字幕条目');
+      setCues(list, f.name);
+    };
+    r.readAsText(f, 'utf-8');
+  };
+  $('demoVtt').onclick = () => {
+    const list = parseVtt(SAMPLE_VTT);
+    setCues(list, '示例');
+  };
+  subBtn.onclick = () => toggleSub();
+  toggleSub(false);
+
+  // ---------------- 播放控制 ----------------
   const toggle = () => v.paused ? v.play().catch(()=>{}) : v.pause();
   playBtn.onclick = toggle;
   v.onclick = toggle;
-  document.getElementById('back10').onclick = () => v.currentTime -= 10;
-  document.getElementById('fwd10').onclick  = () => v.currentTime += 10;
+  $('back10').onclick = () => v.currentTime -= 10;
+  $('fwd10').onclick  = () => v.currentTime += 10;
   speed.onchange = () => v.playbackRate = parseFloat(speed.value);
   vol.oninput = () => { v.volume = parseFloat(vol.value); v.muted = v.volume === 0; };
   muteBtn.onclick = () => { v.muted = !v.muted; muteBtn.textContent = v.muted ? '取消静音' : '静音'; };
-  document.getElementById('fs').onclick = () => {
+  $('fs').onclick = () => {
     if (document.fullscreenElement) document.exitFullscreen();
     else v.parentElement.requestFullscreen();
   };
 
-  // 拖动进度条
   const seekFromEvent = e => {
     const r = track.getBoundingClientRect();
     const p = Math.min(1, Math.max(0, (e.clientX - r.left) / r.width));
@@ -219,7 +325,6 @@
   track.onpointermove = e => { if (dragging) seekFromEvent(e); };
   track.onpointerup   = () => { dragging = false; };
 
-  // ---------- 键盘快捷键 ----------
   document.addEventListener('keydown', e => {
     if (e.target.tagName === 'INPUT' || e.target.tagName === 'SELECT') return;
     const k = e.key.toLowerCase();
@@ -229,32 +334,34 @@
     else if (k === 'arrowup')    { e.preventDefault(); v.volume = Math.min(1, v.volume + 0.1); vol.value = v.volume; }
     else if (k === 'arrowdown')  { e.preventDefault(); v.volume = Math.max(0, v.volume - 0.1); vol.value = v.volume; }
     else if (k === 'm') muteBtn.click();
-    else if (k === 'f') document.getElementById('fs').click();
+    else if (k === 'c') toggleSub();
+    else if (k === 'f') $('fs').click();
   });
 
-  // ---------- 状态渲染 ----------
+  // ---------------- 状态渲染 ----------------
   v.onloadedmetadata = () => {
     tdur.textContent = fmt(v.duration);
-    document.getElementById('sRes').textContent = v.videoWidth + '×' + v.videoHeight;
-    document.getElementById('sDur').textContent = fmt(v.duration);
+    $('sRes').textContent = v.videoWidth + '×' + v.videoHeight;
+    $('sDur').textContent = fmt(v.duration);
     restoreProgress();
   };
   v.ontimeupdate = () => {
     tcur.textContent = fmt(v.currentTime);
     if (isFinite(v.duration) && v.duration > 0)
       prog.style.width = (v.currentTime / v.duration * 100) + '%';
+    renderCue();
   };
+  v.onseeked = renderCue;
   v.onprogress = () => {
     if (!v.buffered.length || !v.duration) return;
     const end = v.buffered.end(v.buffered.length - 1);
     buf.style.width = (end / v.duration * 100) + '%';
-    document.getElementById('sBuf').textContent = fmt(end) + ' / ' + fmt(v.duration);
+    $('sBuf').textContent = fmt(end) + ' / ' + fmt(v.duration);
   };
   v.onplay  = () => playBtn.textContent = '暂停';
   v.onpause = () => { playBtn.textContent = '播放'; saveProgress(); };
   v.onended = () => { playBtn.textContent = '播放'; saveProgress(); };
 
-  // 每 5 秒存一次，关页面也不丢
   setInterval(saveProgress, 5000);
   window.addEventListener('beforeunload', saveProgress);
 })();
